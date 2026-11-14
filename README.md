@@ -198,8 +198,8 @@ To take the app away:
 
 ## Reporting what you found
 
-To whoever gave you the package, or as an issue on this repository once
-it is public. What helps:
+As an [issue on this repository](https://github.com/DanielSnor/blog.sh-desktop/issues),
+or to whoever gave you the package. What helps:
 
 - the system: the distribution and its version, or the Windows edition;
   x86_64 or arm64; on Linux the desktop (GNOME, KDE, …) and whether it
