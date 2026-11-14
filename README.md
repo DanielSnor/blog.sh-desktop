@@ -16,9 +16,14 @@ keeps it as a build of its own (`core/`); this app includes that build
 and adds what only a desktop has: where its files go, how its keys are
 kept, a window.
 
-**Where it stands:** a beginning. A blog is connected by the code
-`./blog.sh pair` shows, given as its line of text, and its first screen
-is read: who the blog is, its queue and its drafts.
+**Where it stands:** the Android app's screens, as its tablet held on its
+side shows them: the menu, and beside it the screen that is open. They
+are not copied either -- this app compiles the Android app's own
+(`app/src/main/java/app/blogsh/android/ui`), and answers in its own
+files what they ask of the system (`OnDesktop.kt` here, `OnAndroid.kt`
+there). Where a desktop has no camera, no web view and no share sheet,
+a pairing code is pasted, a preview opens in the browser, a video in
+the system's player, and a post's address goes to the clipboard.
 
 ## Keys
 
@@ -42,7 +47,8 @@ blog.sh-desktop/
 other is named:
 
 - `tools/gw run` -- the app
-- `tools/gw test` -- its tests (the model's are run by the Android app's)
+- `tools/gw test` -- its tests, and every screen drawn as a picture into
+  the build (`screens/`); the model's tests are run by the Android app's
 - `tools/gw packageMsi` -- the Windows installer; built on Windows only
 
 The words are the Android app's own files, carried in at build time:

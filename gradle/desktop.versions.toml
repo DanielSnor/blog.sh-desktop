@@ -4,9 +4,15 @@
 [versions]
 compose = "1.10.3"
 jna = "5.19.1"
+# The Android app is built against androidx.lifecycle of the same version (androidxLifecycle).
+lifecycle = "2.10.0"
+# What Android has of ICU and the desktop JDK has not: a date as the language writes it, hours in words.
+icu = "78.3"
 
 [libraries]
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
+lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+icu4j = { module = "com.ibm.icu:icu4j", version.ref = "icu" }
 
 [plugins]
 compose = { id = "org.jetbrains.compose", version.ref = "compose" }

@@ -48,13 +48,15 @@ class SandboxTest {
 
         System.getenv("BLOGSH_SHOTS")?.takeIf { it.isNotBlank() }?.let { directory ->
             File(directory).mkdirs()
-            for (dark in listOf(false, true)) {
-                ImageComposeScene(960, 720, Density(1f)) { App(dark) }.use { scene ->
-                    // The screen reads what it shows by itself; here it was read already.
-                    scene.setContent { androidx.compose.material3.MaterialTheme(colorScheme = if (dark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()) { androidx.compose.material3.Surface { Glance(state, load = false) } } }
-                    val image = scene.render()
-                    File(directory, if (dark) "glance-dark.png" else "glance-light.png").writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            // The window as it opens: the first screen reads the blog by itself, over the network.
+            ImageComposeScene(1280, 800, Density(1f)) { App() }.use { scene ->
+                var time = 0L
+                repeat(60) {
+                    scene.render(time)
+                    time += 50_000_000L
+                    Thread.sleep(50)
                 }
+                File(directory, "home.png").writeBytes(scene.render(time).encodeToData(EncodedImageFormat.PNG)!!.bytes)
             }
         }
     }
