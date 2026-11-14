@@ -1,5 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -30,9 +31,24 @@ kotlin {
     }
 }
 
+// The system the app is built for: this one, or another named by
+// `-Pblogsh.target` -- linux-x64, linux-arm64, windows-x64. The code is
+// the same everywhere; only Skia's own library differs, and the
+// installer, which is made by that system's Java (`jpackage`) on it.
+val target = providers.gradleProperty("blogsh.target").orNull
+val skia: String = with(org.jetbrains.compose.ComposePlugin.DesktopDependencies) {
+    when (target) {
+        null -> currentOs
+        "linux-x64" -> linux_x64
+        "linux-arm64" -> linux_arm64
+        "windows-x64" -> windows_x64
+        else -> error("blogsh.target: linux-x64, linux-arm64 or windows-x64, not $target")
+    }
+}
+
 dependencies {
     implementation("app.blogsh:core")
-    implementation(compose.desktop.currentOs)
+    implementation(skia)
     implementation(compose.material3)
     implementation(desk.jna.platform)
     // What the Android app's screens use besides Compose, for the desktop.
@@ -136,12 +152,51 @@ tasks.processResources {
     }
 }
 
+/**
+ * The app and every library it runs on, as jars in one directory: what
+ * the target system's `jpackage` makes an installer of, where this
+ * build cannot run it itself.
+ */
+val appJars = tasks.register<Sync>("appJars") {
+    from(tasks.jar)
+    from(configurations.runtimeClasspath)
+    // Two libraries may share a file name (androidx and JetBrains publish lifecycle so):
+    // each one from Gradle's cache goes under its group as well.
+    eachFile {
+        val parts = file.path.split(File.separatorChar)
+        val at = parts.indexOf("files-2.1")
+        if (at >= 0) name = parts[at + 1] + "." + name
+    }
+    into(layout.buildDirectory.dir("app-jars"))
+}
+
+/**
+ * The parts of Java the installed app carries: what its libraries ask
+ * for (jdeps over every jar: SSH needs naming and GSS, the screens the
+ * desktop), and what nothing names but the app needs all the same -- the
+ * languages' dates and numbers (localedata), the code pages an older
+ * text file is written in (charsets), the curves a server's key may be on
+ * (crypto.ec), a screen reader's way in (accessibility). Without them the
+ * app ran from the build and failed installed.
+ */
+val runtimeModules = listOf(
+    "java.base", "java.desktop", "java.instrument", "java.logging", "java.naming", "java.prefs",
+    "java.security.jgss", "java.sql", "java.xml", "jdk.unsupported",
+    "jdk.localedata", "jdk.charsets", "jdk.crypto.ec", "jdk.accessibility",
+)
+
+tasks.register("printRuntimeModules") {
+    val modules = runtimeModules.joinToString(",")
+    doLast { println(modules) }
+}
+
 compose.desktop {
     application {
         mainClass = "app.blogsh.desktop.MainKt"
         nativeDistributions {
             // A Mac runs the iOS app as it is: Windows, and Linux beside it.
             targetFormats(TargetFormat.Msi, TargetFormat.Deb)
+            modules(*runtimeModules.toTypedArray())
             packageName = "blogsh"
             packageVersion = project.version.toString()
             description = "./blog.sh --anywhere"
