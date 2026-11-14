@@ -1,0 +1,80 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# tools/sync-android [path to blog.sh-android]
+#
+# Takes from the Android app what this app is made of as well, into
+# shared/: the model (core/), the screens (all of ui/ but the four files
+# only Android has), the words, marks and faces of type (res/), and the
+# answers the pictures of the screens are drawn from. What is in shared/
+# is never edited here: a change is made in the Android app and taken
+# over by running this again. shared/SOURCE says which commit of it the
+# copy is.
+#
+# Only what git knows of is taken, and only as it is committed: a working
+# copy with changes in those paths is turned down, so that SOURCE never
+# names a commit the copy is not.
+
+require "fileutils"
+require "open3"
+
+here = File.expand_path("..", __dir__)
+android = File.expand_path(ARGV[0] || File.join(here, "../blog.sh-android"))
+abort "No Android app at #{android}" unless File.directory?(File.join(android, ".git"))
+
+def git(dir, *args)
+  out, status = Open3.capture2("git", "-C", dir, *args)
+  abort "git #{args.join(' ')} failed in #{dir}" unless status.success?
+  out
+end
+
+APP = "app/src/main/java/app/blogsh/android"
+ONLY_ANDROID = %W[#{APP}/ui/OnAndroid.kt #{APP}/ui/Share.kt #{APP}/ui/screens/CodeScanner.kt #{APP}/ui/screens/PreviewViews.kt].freeze
+
+# What is taken, and where it goes in shared/.
+PLACES = [
+  ["core/src/main/kotlin/", "kotlin/"],
+  ["core/src/main/resources/", "resources/"],
+  ["#{APP}/ui/", "kotlin/app/blogsh/android/ui/"],
+  ["#{APP}/model/Doing.kt", "kotlin/app/blogsh/android/model/Doing.kt"],
+  ["app/src/main/res/values", "res/values"],
+  ["app/src/main/res/values-", "res/values-"],
+  ["app/src/main/res/drawable/", "res/drawable/"],
+  ["app/src/main/res/drawable-nodpi/", "res/drawable-nodpi/"],
+  ["app/src/main/res/font/", "res/font/"],
+  ["app/src/test/resources/fixtures/shots/", "test-resources/fixtures/shots/"],
+  ["gradle/libs.versions.toml", "versions.toml"],
+].freeze
+
+# In res/values*, only the words: the Android app's themes and its own name for itself are its own.
+def wanted?(path)
+  return false if ONLY_ANDROID.include?(path)
+  return path.end_with?("/strings.xml") || File.basename(path).start_with?("android") if path.start_with?("app/src/main/res/values")
+  true
+end
+
+tracked = git(android, "ls-files").lines.map(&:chomp)
+taken = tracked.filter_map do |path|
+  from, to = PLACES.find { |prefix, _| path.start_with?(prefix) }
+  next unless from && wanted?(path)
+  [path, to + path.delete_prefix(from)]
+end
+abort "Nothing to take from #{android}" if taken.empty?
+
+changed = git(android, "status", "--porcelain", "--", *PLACES.map(&:first).map { |p| p.chomp("-") }).lines
+unless changed.empty?
+  abort "The Android app has changes not committed in what is taken:\n#{changed.join}Commit them there first."
+end
+
+shared = File.join(here, "shared")
+%w[kotlin resources res test-resources versions.toml].each { |name| FileUtils.rm_rf(File.join(shared, name)) }
+taken.each do |from, to|
+  target = File.join(shared, to)
+  FileUtils.mkdir_p(File.dirname(target))
+  FileUtils.cp(File.join(android, from), target)
+end
+
+commit = git(android, "rev-parse", "HEAD").strip
+date = git(android, "log", "-1", "--format=%cI").strip
+File.write(File.join(shared, "SOURCE"), "blog.sh-android #{commit}\n#{date}\n")
+puts "#{taken.size} files from blog.sh-android #{commit[0, 7]} (#{date})"

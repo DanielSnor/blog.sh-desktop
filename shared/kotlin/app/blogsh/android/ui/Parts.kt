@@ -1,0 +1,971 @@
+package app.blogsh.android.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import app.blogsh.android.R
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import app.blogsh.android.model.Herald
+import app.blogsh.android.model.PostRow
+import app.blogsh.android.model.PostState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.style.TextOverflow
+import app.blogsh.android.model.Unsaved
+import app.blogsh.android.model.say
+import java.time.Instant
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.Locale
+
+// ---- A screen
+
+/** A key of the bar over a screen: a mark, and what it is called for one who cannot see it. */
+@Composable
+fun BarKey(symbol: Int, label: String, enabled: Boolean = true, tint: Color = Theme.accent, onClick: () -> Unit) {
+    Pressable(onClick, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) {
+        Box(Modifier.size(44.dp).alpha(if (enabled) 1f else 0.35f), contentAlignment = Alignment.Center) { Mark(symbol, 24.dp, tint) }
+    }
+}
+
+/**
+ * What stands in a bar where the system would put its title: the
+ * screen's name, or a post's. It takes all the room between the way
+ * back and whatever keys stand at the far end, and starts at the near
+ * edge of it.
+ *
+ * A post's title is somebody's own words and can be long: the bar has
+ * one line for it, at one size on every screen, and cuts what does not
+ * fit at its end. The whole of it stands on the page under the bar.
+ */
+@Composable
+fun RowScope.BarName(name: String? = null, count: String? = null, title: String? = null, symbol: Int? = null) {
+    Box(Modifier.weight(1f).padding(horizontal = 6.dp).semantics(mergeDescendants = true) { heading() }, contentAlignment = Alignment.CenterStart) {
+        if (!title.isNullOrEmpty()) {
+            // A post has three screens under one title -- the post, its
+            // text, its properties: which of them this is stands under
+            // the title, in the engine's voice.
+            Column {
+                Text(title, color = Theme.ink, style = ui(if (name.isNullOrEmpty()) 18f else 16f, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!name.isNullOrEmpty()) Text(voiced(name), color = Theme.muted, style = mono(11f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else if (!name.isNullOrEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The mark of the tile the screen was opened from. In ink,
+                // as the name is: here it is a part of what the screen is
+                // called, not a key -- the accent in a bar is for the keys.
+                if (symbol != null) Mark(symbol, 20.dp, Theme.ink, Modifier.align(Alignment.CenterVertically))
+                Text(
+                    voiced(name), color = Theme.ink, style = display(21f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+                )
+                // How many is said small and grey: the accent is for the
+                // thing itself, where a screen names one.
+                if (count != null) Text(count, color = Theme.muted, style = mono(12f), maxLines = 1, modifier = Modifier.alignByBaseline())
+            }
+        }
+    }
+}
+
+/**
+ * A screen on paper. What it is stands in its bar, beside the way back:
+ * the page under the bar is the screen's own from its first line. A
+ * screen of the app's says its name, in the display face, and how many
+ * it holds; a screen about one post says the post's title. `doing` is
+ * the word for what the screen is doing while it cannot be touched.
+ */
+@Composable
+fun PaperScaffold(
+    onBack: (() -> Unit)? = null,
+    close: Boolean = false,
+    actions: @Composable RowScope.() -> Unit = {},
+    name: String? = null,
+    count: String? = null,
+    title: String? = null,
+    doing: String? = null,
+    /** Puts the menu out of the way, where the screen is the menu and something is open beside it. */
+    hideMenu: (() -> Unit)? = null,
+    /** The mark before the name, where the screen is one of the menu's. */
+    symbol: Int? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    // On a screen whose menu was put out of the way, the key that brings it back.
+    val menu = hideMenu ?: LocalShowMenu.current
+    Box(Modifier.fillMaxSize().background(Theme.paper).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The keys at the bar's leading end, in one order on every
+                // screen: the menu's key first, where the key that put the
+                // menu away stood -- the same place takes it away and
+                // brings it back -- and the way back after it. With the
+                // way back there instead, a second tap on that place left
+                // the screen.
+                if (menu != null) BarKey(Symbols.sidebarLeft, stringResource(R.string.show_or_hide_the_menu), onClick = menu)
+                if (onBack != null) {
+                    BarKey(
+                        if (close) Symbols.xmark else Symbols.chevronLeft,
+                        stringResource(if (close) R.string.android_close else R.string.android_back), onClick = onBack,
+                    )
+                } else if (menu == null) {
+                    Spacer(Modifier.width(Theme.gutter - 14.dp))
+                }
+                BarName(name, count, title, symbol)
+                actions()
+            }
+            content()
+        }
+        if (doing != null) BusyNote(doing, Modifier.align(Alignment.Center))
+    }
+}
+
+/** How tall the page a form stands on is, and where its lower edge is in the window: what the text of a post measures its own room by. */
+data class Page(val height: Dp, val bottom: Float)
+
+val LocalPage = compositionLocalOf { Page(800.dp, Float.MAX_VALUE) }
+
+/**
+ * A screen of fields, facts and actions: everything it holds in one
+ * column on paper, between the two gutters.
+ *
+ * `answered` is counted by a form each time an action of its has
+ * answered -- a result or a refusal, written at the form's end. The page
+ * then goes there and the keyboard out of the way: an answer under the
+ * edge of the screen is an answer nobody got.
+ */
+@Composable
+fun PaperScreen(
+    onBack: (() -> Unit)? = LocalNav.current.let { nav -> { nav.pop() } },
+    close: Boolean = false,
+    actions: @Composable RowScope.() -> Unit = {},
+    name: String? = null,
+    count: String? = null,
+    title: String? = null,
+    answered: Int = 0,
+    doing: String? = null,
+    symbol: Int? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scroll = rememberScrollState()
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(answered) {
+        if (answered == 0) return@LaunchedEffect
+        focus.clearFocus()
+        keyboard?.hide()
+        // Once the answer is laid out and the keyboard has gone.
+        delay(350)
+        scroll.animateScrollTo(scroll.maxValue)
+    }
+    PaperScaffold(onBack, close, actions, name, count, title, doing, symbol = symbol) {
+        var bottom by remember { mutableStateOf(Float.MAX_VALUE) }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { bottom = it.positionInWindow().y + it.size.height }) {
+            CompositionLocalProvider(LocalPage provides Page(maxHeight, bottom)) {
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(scroll)
+                        .padding(horizontal = Theme.gutter).padding(top = 2.dp, bottom = 28.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * What iOS shows as a sheet: a screen over the one that asked for it,
+ * closed by its own key, with the one under it kept as it was.
+ */
+@Composable
+fun PaperSheet(
+    onDismiss: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
+    scrolls: Boolean = true,
+    name: String? = null,
+    count: String? = null,
+    title: String? = null,
+    /** Something laid over the sheet, in the sheet's own window: nothing of the system's comes between the two. */
+    over: @Composable BoxScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    SheetDialog(onDismissRequest = onDismiss) {
+        SheetBars()
+        Typed {
+            SheetFrame {
+                Box(Modifier.fillMaxSize()) {
+                    if (scrolls) PaperScreen(onBack = onDismiss, close = true, actions = actions, name = name, count = count, title = title, content = content)
+                    else PaperScaffold(onBack = onDismiss, close = true, actions = actions, name = name, count = count, title = title, content = content)
+                    over()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Where a sheet stands in its window: the whole of it on a phone; on a
+ * wide screen a card in its middle, as wide as a form reads well, with
+ * the screen that asked for it still in sight around it.
+ */
+@Composable
+fun SheetFrame(content: @Composable () -> Unit) = CompositionLocalProvider(LocalShowMenu provides null) { SheetCard(content) }
+
+@Composable
+private fun SheetCard(content: @Composable () -> Unit) {
+    if (!Theme.wide) {
+        content()
+        return
+    }
+    // The bars and the keyboard are stepped around here, once: the card
+    // stands in what is left, and what it holds has nothing more to avoid.
+    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.widthIn(max = 640.dp).fillMaxWidth().fillMaxHeight().clip(RoundedCornerShape(20.dp)).border(1.dp, Theme.line, RoundedCornerShape(20.dp))) {
+            content()
+        }
+    }
+}
+
+/**
+ * What a screen is doing while it cannot be touched: a wheel and a word
+ * over it. An action that is over in a blink says nothing -- the note
+ * only comes up once the wait is long enough to be wondered about.
+ */
+@Composable
+fun BusyNote(words: String, modifier: Modifier = Modifier) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(600)
+        shown = true
+    }
+    val shape = CircleShape
+    Row(
+        modifier.alpha(if (shown) 1f else 0f).shadow(12.dp, shape).clip(shape).background(Theme.paper).border(1.dp, Theme.line, shape)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Busy(16.dp)
+        Text(words, color = Theme.ink, style = ui(14f, FontWeight.Medium))
+    }
+}
+
+/**
+ * The herald's place on the screen: a line or two over the lower edge,
+ * there only while there is something to say -- what was just done, and
+ * the site being brought up to date.
+ */
+@Composable
+fun HeraldStrip(modifier: Modifier = Modifier) {
+    val herald = Herald.shared
+    val build = herald.build
+    val note = herald.note
+    if (build == Herald.Build.None && note == null) return
+    Column(modifier.fillMaxWidth().background(Theme.paper)) {
+        Hairline()
+        Column(Modifier.padding(horizontal = Theme.gutter, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (note != null) Text(note, color = Theme.ink, style = ui(13f, FontWeight.Medium))
+            when (build) {
+                Herald.Build.None -> {}
+                // Said with what comes next, so the line is never a thing left to do.
+                Herald.Build.Owed ->
+                    Text(herald.owedFor + " — " + stringResource(R.string.the_site_will_be_built_in_a), color = Theme.muted, style = ui(13f))
+                Herald.Build.Building -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Busy(12.dp)
+                    Text(herald.owedFor + " — " + stringResource(R.string.building_the_site_now), color = Theme.muted, style = ui(13f))
+                }
+                // The one thing here that wants something: it failed, and
+                // where to try again. A tap puts it away.
+                is Herald.Build.Failed -> Pressable({ herald.acknowledge() }) {
+                    Text(stringResource(R.string.the_site_could_not_be_built_it, build.why), color = Theme.danger, style = ui(13f))
+                }
+            }
+        }
+    }
+}
+
+/** A hairline: the rule between two rows. */
+@Composable
+fun Hairline(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(Theme.line))
+}
+
+/**
+ * A row of a list on paper: the ground shows through, a hairline under it
+ * from one gutter to the other.
+ */
+@Composable
+fun PaperRow(modifier: Modifier = Modifier, rule: Boolean = true, content: @Composable () -> Unit) {
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = Theme.gutter)) { content() }
+        if (rule) Hairline(Modifier.padding(horizontal = Theme.gutter))
+    }
+}
+
+/** Something is being asked of the server. */
+@Composable
+fun Busy(size: Dp = 20.dp, color: Color = Theme.accent, modifier: Modifier = Modifier) {
+    CircularProgressIndicator(modifier = modifier.size(size), color = color, strokeWidth = 2.dp)
+}
+
+// ---- What a screen holds
+
+/**
+ * What a post is, as its row in a list knew it, the first thing on a
+ * screen about it and one table: its whole title, however long -- the
+ * bar over the screen has one line for it; what the engine calls it;
+ * what state it is in, and since or until when; its tags, or its type
+ * where it has none. A row with nothing to say is not drawn: a post
+ * without a title has no first row.
+ */
+@Composable
+fun PostFacts(post: PostRow) {
+    // The day and the hour, in the blog's own zone said out: the phone may be abroad.
+    val at = post.date?.let { humanDate(it) }
+    val draft = stringResource(R.string.saved_draft)
+    val published = stringResource(R.string.saved_published)
+    val pinned = stringResource(R.string.browse_state_pinned)
+    // In the words the properties screen has for it.
+    val state = when {
+        post.state != PostState.Published -> draft
+        at == null -> published
+        else -> stringResource(R.string.published_2, at) + (if (post.pinned) " · $pinned" else "")
+    }
+    val labels = listOf(R.string.title, R.string.slug, R.string.scheduled_2, R.string.state, R.string.type, R.string.tags).map { stringResource(it) }
+    Plate(Modifier.padding(top = 4.dp)) {
+        info(labels[0], post.title)
+        info(labels[1], post.slug, mono = true)
+        if (post.scheduled) info(labels[2], at) else info(labels[3], state)
+        if (post.tags.isEmpty()) info(labels[4], post.type) else info(labels[5], post.tags.joinToString(", "))
+    }
+}
+
+/**
+ * What the engine calls a post, or where the post is: the first line of
+ * a screen about it, under the title that stands in the bar.
+ */
+@Composable
+fun PostSlug(text: String) {
+    SelectionContainer { Text(text, color = Theme.muted, style = mono(12f, bold = false), modifier = Modifier.padding(top = 4.dp)) }
+}
+
+/**
+ * What the rows under it are, in the engine's voice. The name of a
+ * section is in the accent, as the names of the boxes are on the blog's
+ * own pages; the names of the rows inside a plate stay muted -- those are
+ * fields, not sections.
+ */
+@Composable
+fun SectionLabel(text: String) {
+    EngineLabel(text, Modifier.gap(22, bottom = 8).semantics { heading() }, color = Theme.accent)
+}
+
+/** A word of explanation under a plate. */
+@Composable
+fun Hint(text: String, modifier: Modifier = Modifier) {
+    Text(text, color = Theme.muted, style = ui(13f), modifier = modifier.gap(8))
+}
+
+/**
+ * Said at the head of a form that opened with something in it nobody
+ * typed just now: writing that was kept from the last time, brought
+ * back -- and the one key that puts it away again.
+ */
+@Composable
+fun BroughtBack(words: String, key: String, modifier: Modifier = Modifier, putAway: () -> Unit) {
+    Plate(modifier) {
+        row { Text(words, color = Theme.muted, style = ui(14f)) }
+        row { Command(key, Symbols.xmark, danger = true, onClick = putAway) }
+    }
+}
+
+/**
+ * What a screen says of changes it brought back: when they were written,
+ * that the post has moved on under them where it has, and that pictures
+ * chosen for them have to be chosen again.
+ */
+@Composable
+fun broughtBackWords(kept: Unsaved, base: String, media: List<String>?): String {
+    var words = stringResource(R.string.back_in_the_editor_the_changes_written, RowDate.spoken(Instant.ofEpochMilli(kept.at)))
+    if (kept.base != base) words += " " + stringResource(R.string.the_post_has_changed_on_the_blog)
+    if (media != null && kept.namesPictures(media)) words += " " + stringResource(R.string.its_pictures_were_not_kept_add_them)
+    return words
+}
+
+/** What went wrong, where it went wrong. */
+@Composable
+fun ProblemLine(text: String) {
+    SelectionContainer { Text(text, color = Theme.danger, style = ui(14f), modifier = Modifier.gap(10)) }
+}
+
+/** The rows of a plate, as they are said: one that is not said takes no place and leaves no rule behind. */
+class PlateScope {
+    internal val rows = mutableListOf<@Composable () -> Unit>()
+
+    fun row(content: @Composable () -> Unit) {
+        rows.add(content)
+    }
+
+    /** A fact; one with nothing to say is not drawn, as on the terminal. */
+    fun info(label: String, value: String?, mono: Boolean = false) {
+        if (!value.isNullOrEmpty()) rows.add { InfoRow(label, value, mono) }
+    }
+}
+
+/**
+ * Several rows that belong together, on one card: a hairline around
+ * them and one between each two.
+ */
+@Composable
+fun Plate(modifier: Modifier = Modifier, build: PlateScope.() -> Unit) {
+    val rows = PlateScope().apply(build).rows
+    if (rows.isEmpty()) return
+    val shape = RoundedCornerShape(Theme.corner)
+    Column(modifier.fillMaxWidth().clip(shape).background(Theme.card).border(1.dp, Theme.line, shape)) {
+        rows.forEachIndexed { index, row ->
+            if (index > 0) Hairline()
+            Box(Modifier.fillMaxWidth().padding(horizontal = PlateRow.side, vertical = PlateRow.above)) { row() }
+        }
+    }
+}
+
+/** The room a plate leaves around each of its rows. */
+object PlateRow {
+    val side = 13.dp
+    val above = 12.dp
+}
+
+/**
+ * A row of a plate that says "done": the thing a key was for has just
+ * happened. Filled with the accent from one edge of the plate to the
+ * other, as a link that was copied is on the blog's own pages, and
+ * gone again when the key is a key once more.
+ */
+@Composable
+fun DoneRow(label: String) {
+    Row(
+        // Out to the plate's own edges: the fill is the row, not a box in it.
+        Modifier.layout { measurable, constraints ->
+            val side = PlateRow.side.roundToPx()
+            val above = PlateRow.above.roundToPx()
+            val placeable = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + 2 * side, minWidth = constraints.minWidth + 2 * side))
+            layout(placeable.width - 2 * side, placeable.height - 2 * above) { placeable.place(-side, -above) }
+        }.fillMaxWidth().background(Theme.accent).padding(horizontal = PlateRow.side, vertical = PlateRow.above)
+            .semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) { Mark(Symbols.checkmark, 20.dp, Color.White) }
+        Text(label, color = Color.White, style = ui(15f, FontWeight.Medium), modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * A fact: what it is in the engine's voice, what it says beside it. At
+ * the largest sizes the two do not share a row: the value stands under
+ * its name and has the whole width.
+ */
+@Composable
+fun InfoRow(label: String, value: String, mono: Boolean = false) {
+    val style = if (mono) mono(13f, bold = false) else ui(15f)
+    if (Theme.crowded) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            EngineLabel(label)
+            SelectionContainer { Text(value, color = Theme.ink, style = style) }
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        EngineLabel(label, Modifier.alignByBaseline())
+        // The value has the row: it wraps rather than being cut, and the
+        // label keeps to its own width.
+        SelectionContainer(Modifier.weight(1f).alignByBaseline()) {
+            Text(value, color = Theme.ink, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth(), style = style)
+        }
+    }
+}
+
+/** A short value to type, named in the engine's voice at its side. */
+@Composable
+fun FieldRow(
+    label: String,
+    text: String,
+    onText: (String) -> Unit,
+    prompt: String = "",
+    mono: Boolean = false,
+    /** The width the labels of one plate share, so their fields line up. */
+    labelWidth: Dp = 72.dp,
+    keyboard: KeyboardOptions = KeyboardOptions.Default,
+    enabled: Boolean = true,
+) {
+    // At the largest sizes a column for the name leaves the field too
+    // little of the row: the name stands over it instead.
+    if (Theme.crowded) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            EngineLabel(label)
+            PlainField(text, onText, prompt, mono, keyboard, enabled, Modifier.fillMaxWidth())
+        }
+        return
+    }
+    // The label's column grows with its type.
+    val grown = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        EngineLabel(label, Modifier.width(labelWidth * grown).alignByBaseline())
+        PlainField(text, onText, prompt, mono, keyboard, enabled, Modifier.weight(1f).alignByBaseline())
+    }
+}
+
+/** A line to type on, with nothing around it: the plate it stands on is its frame. */
+@Composable
+fun PlainField(
+    text: String,
+    onText: (String) -> Unit,
+    prompt: String = "",
+    mono: Boolean = false,
+    keyboard: KeyboardOptions = KeyboardOptions.Default,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    size: Float = if (mono) 15f else 16f,
+    weight: FontWeight = FontWeight.Normal,
+    singleLine: Boolean = true,
+    actions: KeyboardActions = KeyboardActions.Default,
+) {
+    val style = if (mono) mono(size, bold = false) else ui(size, weight)
+    BasicTextField(
+        value = text, onValueChange = onText, modifier = modifier, enabled = enabled, singleLine = singleLine,
+        textStyle = style.copy(color = Theme.ink), cursorBrush = SolidColor(Theme.accent), keyboardOptions = keyboard, keyboardActions = actions,
+        decorationBox = { inner ->
+            Box {
+                if (text.isEmpty() && prompt.isNotEmpty()) Text(prompt, color = Theme.muted, style = style, maxLines = 1)
+                inner()
+            }
+        },
+    )
+}
+
+/**
+ * Something the screen can do or lead to: its mark in the accent, its
+ * name, and an arrow when it leads somewhere. What cannot be taken back
+ * says so by its colour.
+ */
+@Composable
+fun CommandRow(label: String, symbol: Int, danger: Boolean = false, leads: Boolean = false, busy: Boolean = false, enabled: Boolean = true) {
+    // A row that cannot be pressed just now is out of reach like any
+    // other key: one tone, and no making it transparent.
+    OutOfReach(!enabled) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
+                if (busy) Busy(16.dp) else Mark(symbol, 20.dp, if (danger) Theme.danger else Theme.accent)
+            }
+            Text(label, color = wordUnderPointer(if (danger) Theme.danger else Theme.ink, moves = !danger), style = ui(15f, FontWeight.Medium), modifier = Modifier.weight(1f))
+            if (leads) Mark(Symbols.chevronRight, 16.dp, Theme.muted)
+        }
+    }
+}
+
+/** A command row that is a button: it dims under the finger and does its one thing. */
+@Composable
+fun Command(
+    label: String, symbol: Int, danger: Boolean = false, leads: Boolean = false, busy: Boolean = false, enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Pressable(onClick, enabled = enabled && !busy) { CommandRow(label, symbol, danger, leads, busy, enabled) }
+}
+
+/**
+ * The one thing a screen is for: the accent, filled, the words in the
+ * engine's voice. One of these to a screen.
+ */
+@Composable
+fun PrimaryButton(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, busy: Boolean = false, onClick: () -> Unit) {
+    Pressable(onClick, modifier = modifier, enabled = enabled && !busy) {
+        // Out of reach it gives up its fill, as everything out of reach
+        // does, and keeps its shape as an outline in the one tone: never
+        // the filled key made transparent. So it is while it works.
+        val live = enabled && !busy && !LocalOutOfReach.current
+        val words = if (live) Color.White else Theme.faded
+        Row(
+            Modifier.fillMaxWidth().clip(CircleShape)
+                .then(if (live) Modifier.background(Theme.accent) else Modifier.border(1.dp, Theme.faded, CircleShape))
+                .padding(vertical = 14.dp, horizontal = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The wheel in the words' own colour: white on the fill, the faded tone on the outline.
+            if (busy) Busy(16.dp, words)
+            Text(voiced(label), color = words, style = mono(13f).copy(letterSpacing = 0.8.sp), textAlign = TextAlign.Center)
+        }
+    }
+}
+
+/**
+ * A screen with nothing to show says so where the rows would be -- as
+ * loudly as the room it stands in is large, and no louder: a screen of
+ * its own -- an empty queue, an empty trash -- or a part of a screen,
+ * where it stays a small remark.
+ */
+enum class Room { Welcome, Screen, Part }
+
+@Composable
+fun EmptyNote(symbol: Int, title: String, detail: String? = null, room: Room = Room.Screen, modifier: Modifier = Modifier) {
+    val mark = when (room) { Room.Welcome -> 104.dp; Room.Screen -> 52.dp; Room.Part -> 30.dp }
+    val words = when (room) { Room.Welcome -> 21f; Room.Screen -> 17f; Room.Part -> 16f }
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(when (room) { Room.Welcome -> 22.dp; Room.Screen -> 14.dp; Room.Part -> 8.dp }),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Mark(symbol, mark, Theme.muted)
+        Text(title, color = Theme.ink, style = ui(words, FontWeight.Medium), textAlign = TextAlign.Center)
+        if (detail != null) {
+            Text(detail, color = Theme.muted, style = ui(if (room == Room.Part) 14f else 15f), textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 420.dp))
+        }
+    }
+}
+
+// ---- What a screen says and asks
+
+/**
+ * What a screen has to say after an action, and what it may ask with it:
+ * one thing at a time, its question in it.
+ */
+class Said(
+    val title: String = "",
+    val text: String = "",
+    val ask: Ask? = null,
+    /** When it is put away without acting on it. */
+    val after: (() -> Unit)? = null,
+) {
+    class Ask(val button: String, val cancel: String? = null, val danger: Boolean = false, val run: suspend () -> Unit)
+}
+
+/** The one place a screen says things through. `onClose` puts what was said away. */
+@Composable
+fun Says(said: Said?, onClose: () -> Unit) {
+    // Before the way out: what is asked runs after the message is put away, and a
+    // scope made after it would be gone with the message -- the action with it.
+    val scope = rememberCoroutineScope()
+    if (said == null) return
+    val leave = {
+        said.after?.invoke()
+        onClose()
+    }
+    AlertDialog(
+        onDismissRequest = leave,
+        title = if (said.title.isEmpty()) null else ({ Typed { Text(said.title, style = ui(18f, FontWeight.SemiBold), color = Theme.ink) } }),
+        text = if (said.text.isEmpty()) null else ({ Typed { Text(said.text, style = ui(15f), color = Theme.ink) } }),
+        confirmButton = {
+            val ask = said.ask
+            if (ask != null) {
+                DialogKey(ask.button, danger = ask.danger) {
+                    onClose()
+                    scope.launch { ask.run() }
+                }
+            } else {
+                DialogKey(stringResource(R.string.ok), onClick = leave)
+            }
+        },
+        dismissButton = said.ask?.let { ask -> { DialogKey(ask.cancel ?: stringResource(R.string.cancel), quiet = true, onClick = leave) } },
+        containerColor = dialogGround(),
+    )
+}
+
+@Composable
+internal fun dialogGround(): Color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh
+
+@Composable
+fun DialogKey(label: String, danger: Boolean = false, quiet: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(onClick = onClick, enabled = enabled) {
+        Typed { Text(label, style = ui(15f, if (quiet) FontWeight.Normal else FontWeight.SemiBold), color = if (danger) Theme.danger else if (quiet) Theme.muted else Theme.accent) }
+    }
+}
+
+/** One of the things a question offers. */
+class Choice(val label: String, val danger: Boolean = false, val run: () -> Unit)
+
+/**
+ * A question with several answers, asked over the screen: what iOS shows
+ * as a sheet of actions rising from the bottom. Each answer is a line of
+ * its own; the last one is always to leave things as they are.
+ */
+@Composable
+fun Asks(title: String, message: String? = null, choices: List<Choice>, cancel: String = stringResource(R.string.cancel), onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        val shape = RoundedCornerShape(22.dp)
+        Typed { Column(Modifier.fillMaxWidth().clip(shape).background(dialogGround()).padding(top = 22.dp, bottom = 8.dp)) {
+            Text(title, style = ui(16f, FontWeight.SemiBold), color = Theme.ink, modifier = Modifier.padding(horizontal = 22.dp))
+            if (!message.isNullOrEmpty()) {
+                Text(message, style = ui(14f), color = Theme.muted, modifier = Modifier.padding(horizontal = 22.dp).padding(top = 8.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+            for (choice in choices) {
+                Hairline()
+                Pressable({ onDismiss(); choice.run() }, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        choice.label, style = ui(15f, FontWeight.Medium), color = if (choice.danger) Theme.danger else Theme.accent,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp),
+                    )
+                }
+            }
+            Hairline()
+            Pressable(onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text(cancel, style = ui(15f), color = Theme.muted, modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 14.dp))
+            }
+        } }
+    }
+}
+
+/** A question answered by typing: a new slug, a position in the queue. */
+@Composable
+fun AsksFor(
+    title: String,
+    value: String,
+    onValue: (String) -> Unit,
+    prompt: String = "",
+    confirm: String,
+    keyboard: KeyboardOptions = KeyboardOptions.Default,
+    mono: Boolean = false,
+    message: String? = null,
+    /** The value is one to type over -- a number -- so it opens chosen whole. */
+    chosen: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Typed { Text(title, style = ui(17f, FontWeight.SemiBold), color = Theme.ink) } },
+        text = {
+            Typed { Column {
+                if (!message.isNullOrEmpty()) Text(message, style = ui(14f), color = Theme.muted, modifier = Modifier.padding(bottom = 10.dp))
+                val shape = RoundedCornerShape(10.dp)
+                val focus = remember { FocusRequester() }
+                // The caret stands after what is there already -- a field that
+                // is only handed its words puts it before them, and every
+                // letter typed then lands in front of the old ones.
+                var field by remember { mutableStateOf(TextFieldValue(value, TextRange(if (chosen) 0 else value.length, value.length))) }
+                if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+                val style = if (mono) mono(15f, bold = false) else ui(16f)
+                Box(Modifier.fillMaxWidth().border(1.dp, Theme.line, shape).padding(horizontal = 12.dp, vertical = 11.dp)) {
+                    BasicTextField(
+                        value = field,
+                        onValueChange = {
+                            field = it
+                            if (it.text != value) onValue(it.text)
+                        },
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,
+                        textStyle = style.copy(color = Theme.ink), cursorBrush = SolidColor(Theme.accent), keyboardOptions = keyboard,
+                        decorationBox = { inner ->
+                            Box {
+                                if (field.text.isEmpty() && prompt.isNotEmpty()) Text(prompt, color = Theme.muted, style = style, maxLines = 1)
+                                inner()
+                            }
+                        },
+                    )
+                }
+                // The caret is in the field when the question opens, as it is in an alert on iOS.
+                LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+            } }
+        },
+        confirmButton = { DialogKey(confirm) { onDismiss(); onConfirm() } },
+        dismissButton = { DialogKey(stringResource(R.string.cancel), quiet = true, onClick = onDismiss) },
+        containerColor = dialogGround(),
+    )
+}
+
+/**
+ * A site that publishes in more than one language refuses to publish or
+ * schedule a post that has no words in one of them, unless it is told to
+ * (`--allow-partial`). At the desk that is a flag typed after reading the
+ * refusal; here it is the question the refusal becomes.
+ */
+object Partial {
+    const val CODE = "partial_translation"
+    val words: String @Composable get() = stringResource(R.string.this_site_publishes_in_more_than_one)
+
+    /** The same words where nothing is being drawn: in the code that catches the refusal. */
+    fun said(): String = app.blogsh.android.model.Spoken.say(R.string.this_site_publishes_in_more_than_one)
+}
+
+// ---- Choosing
+
+/**
+ * One of a few: the property named in the engine's voice, and beside it
+ * what is chosen now -- which opens the others.
+ */
+@Composable
+fun <T> ChoiceRow(label: String, chosen: String, selected: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val crowded = Theme.crowded
+    val choice: @Composable () -> Unit = {
+        Box {
+            Pressable({ open = true }) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(chosen, color = Theme.ink, style = ui(15f), maxLines = if (crowded) 2 else 1)
+                    Mark(Symbols.chevronUpChevronDown, 16.dp)
+                }
+            }
+            Menu(open, { open = false }) {
+                for ((value, name) in options) {
+                    MenuKey(name, if (value == selected) Symbols.checkmark else null) {
+                        open = false
+                        onSelect(value)
+                    }
+                }
+            }
+        }
+    }
+    // At the largest sizes the choice would be cut short beside its
+    // name: it stands under it, and may take a second line.
+    if (crowded) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            EngineLabel(label)
+            choice()
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        EngineLabel(label)
+        Spacer(Modifier.weight(1f))
+        choice()
+    }
+}
+
+/** A menu opened from a key or from a row: its lines one under another. */
+@Composable
+fun Menu(open: Boolean, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    DropdownMenu(expanded = open, onDismissRequest = onDismiss, containerColor = dialogGround()) { Typed { content() } }
+}
+
+@Composable
+fun MenuKey(label: String, symbol: Int? = null, danger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    // A line that cannot be chosen now says so by going pale, as it does on iOS.
+    val fade = if (enabled) 1f else 0.38f
+    DropdownMenuItem(
+        text = { Text(label, style = ui(15f), color = (if (danger) Theme.danger else Theme.ink).copy(alpha = fade)) },
+        leadingIcon = symbol?.let { { Mark(it, 20.dp, (if (danger) Theme.danger else Theme.accent).copy(alpha = fade)) } },
+        enabled = enabled, onClick = onClick,
+    )
+}
+
+/** On or off: a sentence in the plain face, or a property in the engine's voice. */
+@Composable
+fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, property: Boolean = false, enabled: Boolean = true) {
+    // The whole row is the switch: its words are as good a place to press as its knob.
+    Row(
+        Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            if (property) EngineLabel(label) else Text(label, color = Theme.ink, style = ui(15f))
+        }
+        // As tall as the rows beside it: the system's own switch asks for more room than a row of a plate has.
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+        Switch(
+            modifier = Modifier.scale(0.82f).height(26.dp),
+            checked = checked, onCheckedChange = null, enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White, checkedTrackColor = Theme.accent,
+                uncheckedThumbColor = Theme.muted, uncheckedTrackColor = Theme.card, uncheckedBorderColor = Theme.line,
+            ),
+        )
+        }
+    }
+}
+
+/**
+ * Changes kept on the device whose post could not be opened -- it was
+ * renamed or deleted elsewhere, or the blog cannot be reached. They are
+ * shown, to be read and copied, with the one key that lets go of them;
+ * without it they would wait on the first screen for good.
+ */
+@Composable
+fun ColumnScope.Stranded(kept: Unsaved, discard: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    Hint(
+        stringResource(R.string.written_here_and_never_saved_the_post, RowDate.spoken(java.time.Instant.ofEpochMilli(kept.at))),
+        Modifier.gap(14),
+    )
+    Plate {
+        row { SelectionContainer { Text(kept.text, color = Theme.ink, style = mono(14f, bold = false)) } }
+    }
+    Plate(Modifier.gap(14)) {
+        row { Command(stringResource(R.string.throw_away), Symbols.trash, danger = true) { confirming = true } }
+    }
+    if (confirming) {
+        Asks(
+            stringResource(R.string.throw_these_changes_away_they_were_never),
+            choices = listOf(Choice(stringResource(R.string.throw_away), danger = true, run = discard)),
+            onDismiss = { confirming = false },
+        )
+    }
+}

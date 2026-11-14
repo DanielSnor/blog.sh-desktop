@@ -6,6 +6,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
     alias(desk.plugins.compose)
 }
 
@@ -32,7 +33,7 @@ kotlin {
 }
 
 // The system the app is built for: this one, or another named by
-// `-Pblogsh.target` -- linux-x64, linux-arm64, windows-x64. The code is
+// `-Pblogsh.target` -- linux-x64, linux-arm64, windows-x64, windows-arm64. The code is
 // the same everywhere; only Skia's own library differs, and the
 // installer, which is made by that system's Java (`jpackage`) on it.
 val target = providers.gradleProperty("blogsh.target").orNull
@@ -42,13 +43,19 @@ val skia: String = with(org.jetbrains.compose.ComposePlugin.DesktopDependencies)
         "linux-x64" -> linux_x64
         "linux-arm64" -> linux_arm64
         "windows-x64" -> windows_x64
-        else -> error("blogsh.target: linux-x64, linux-arm64 or windows-x64, not $target")
+        "windows-arm64" -> windows_arm64
+        else -> error("blogsh.target: linux-x64, linux-arm64, windows-x64 or windows-arm64, not $target")
     }
 }
 
 dependencies {
-    implementation("app.blogsh:core")
     implementation(skia)
+    // What the model (shared/) is built on, as the Android app builds it.
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.sshj)
+    implementation(libs.bouncycastle)
+    implementation(libs.zxing.core)
     implementation(compose.material3)
     implementation(desk.jna.platform)
     // What the Android app's screens use besides Compose, for the desktop.
@@ -59,23 +66,10 @@ dependencies {
     testImplementation(libs.junit)
 }
 
-// The screens are the Android app's own: compiled here as they are written
-// there, with what only Android has (the camera, the web view, the share
-// sheet, the system's answers in OnAndroid.kt) left out -- this app answers
-// the same names in its own files (OnDesktop.kt and the rest).
-val androidApp = rootDir.resolve("../blog.sh-android/app/src/main")
-val shareScreens = tasks.register<Sync>("shareScreens") {
-    from(androidApp.resolve("java")) {
-        include("app/blogsh/android/ui/**/*.kt", "app/blogsh/android/model/Doing.kt")
-        exclude(
-            "app/blogsh/android/ui/OnAndroid.kt",
-            "app/blogsh/android/ui/Share.kt",
-            "app/blogsh/android/ui/screens/CodeScanner.kt",
-            "app/blogsh/android/ui/screens/PreviewViews.kt",
-        )
-    }
-    into(layout.buildDirectory.dir("generated/screens"))
-}
+// The model, the screens, the words, marks and faces of type are the
+// Android app's, copied into shared/ by tools/sync-android and never edited
+// here; what only a desktop has is in src/.
+val shared = layout.projectDirectory.dir("shared")
 
 /**
  * The ids the screens name the Android app's resources by (`R.string.…`,
@@ -121,16 +115,17 @@ abstract class ResourceIdsTask : DefaultTask() {
 }
 
 val resourceIds = tasks.register<ResourceIdsTask>("resourceIds") {
-    res.set(androidApp.resolve("res"))
+    res.set(shared.dir("res"))
     version.set(project.version.toString())
     output.set(layout.buildDirectory.dir("generated/resourceIds"))
 }
 
-kotlin.sourceSets["main"].kotlin.srcDir(shareScreens)
+kotlin.sourceSets["main"].kotlin.srcDir(shared.dir("kotlin"))
+sourceSets["main"].resources.srcDir(shared.dir("resources"))
 kotlin.sourceSets["main"].kotlin.srcDir(resourceIds)
 
 // The answers the Android app's pictures of its screens are drawn from: the desktop's are drawn from them too.
-sourceSets["test"].resources.srcDir(androidApp.resolve("../test/resources"))
+sourceSets["test"].resources.srcDir(shared.dir("test-resources"))
 
 tasks.test {
     systemProperty("blogsh.screens", layout.buildDirectory.dir("screens").get().asFile.path)
@@ -141,11 +136,11 @@ tasks.test {
 // `res/font/…`. A mark names its colour the way Android does
 // (`@android:color/white`), which the desktop reads as a colour of its own.
 tasks.processResources {
-    from(androidApp.resolve("res")) {
+    from(shared.dir("res")) {
         include("values*/strings.xml", "values*/android*.xml")
         into("words")
     }
-    from(androidApp.resolve("res")) {
+    from(shared.dir("res")) {
         include("drawable/*.xml", "drawable-nodpi/*", "font/*")
         filesMatching("drawable/*.xml") { filter { it.replace("@android:color/white", "#FFFFFFFF").replace("@android:color/black", "#FF000000") } }
         into("res")
@@ -201,6 +196,10 @@ compose.desktop {
             packageVersion = project.version.toString()
             description = "./blog.sh --anywhere"
             vendor = "Daniel Šnor"
+            linux {
+                // Where a desktop's menu files the app: among the office programs, as on Windows.
+                menuGroup = "Office"
+            }
             windows {
                 menuGroup = "blog.sh"
                 // One for the app's whole life: by it Windows knows a newer installer replaces the older one.

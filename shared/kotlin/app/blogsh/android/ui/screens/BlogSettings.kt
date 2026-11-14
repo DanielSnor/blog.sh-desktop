@@ -1,0 +1,323 @@
+package app.blogsh.android.ui.screens
+
+import app.blogsh.android.ui.copyText
+import app.blogsh.android.ui.SheetDialog
+import app.blogsh.android.ui.rememberHost
+import app.blogsh.android.ui.stringResource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import app.blogsh.android.R
+import app.blogsh.android.model.Blog
+import app.blogsh.android.model.Blogs
+import app.blogsh.android.model.Engine
+import app.blogsh.android.model.KeyLine
+import app.blogsh.android.model.KeyStore
+import app.blogsh.android.model.TrustOnFirstUse
+import app.blogsh.android.model.VersionAnswer
+import app.blogsh.android.model.isCalledOff
+import app.blogsh.android.model.said
+import app.blogsh.android.ui.Asks
+import app.blogsh.android.ui.Choice
+import app.blogsh.android.ui.Command
+import app.blogsh.android.ui.DialogKey
+import app.blogsh.android.ui.DoneRow
+import app.blogsh.android.ui.EngineLabel
+import app.blogsh.android.ui.FieldRow
+import app.blogsh.android.ui.Hint
+import app.blogsh.android.ui.PaperScreen
+import app.blogsh.android.ui.SheetBars
+import app.blogsh.android.ui.SheetFrame
+import app.blogsh.android.ui.Typed
+import app.blogsh.android.ui.Plate
+import app.blogsh.android.ui.PrimaryButton
+import app.blogsh.android.ui.ProblemLine
+import app.blogsh.android.ui.SectionLabel
+import app.blogsh.android.ui.Symbols
+import app.blogsh.android.ui.Theme
+import app.blogsh.android.ui.mono
+import app.blogsh.android.ui.gap
+import app.blogsh.android.ui.ui
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private sealed class Probe {
+    object Idle : Probe()
+    object Running : Probe()
+    class Answered(val answer: VersionAnswer) : Probe()
+    class Failed(val reason: String) : Probe()
+}
+
+/**
+ * The one thing the terminal never asks for: where the blog is, and the
+ * key the app holds. Three fields, a key made on this device, and the
+ * line for the server's authorized_keys -- with the forced command in
+ * front of it, which is what keeps this key from ever getting a shell.
+ *
+ * It is the open blog's, and it is reached from that blog's row in the
+ * list of blogs; what is the app's own is under the gear. `onBack` leads
+ * to that list again, `onDone` closes the list too, and so the way back
+ * to the app.
+ */
+@Composable
+fun BlogSettingsSheet(onBack: () -> Unit, onDone: () -> Unit) {
+    val context = rememberHost()
+    // The key says that it took: the row is the only place to see it.
+    var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var publicKey by remember { mutableStateOf<String?>(null) }
+    var probe by remember { mutableStateOf<Probe>(Probe.Idle) }
+    var confirmingNewKey by remember { mutableStateOf(false) }
+    var confirmingRemoval by remember { mutableStateOf(false) }
+    // A new code is being read for this blog.
+    var pairing by remember { mutableStateOf(false) }
+    var showingDevices by remember { mutableStateOf(false) }
+    var confirmingForget by remember { mutableStateOf(false) }
+    // The server's remembered key is read again after it is forgotten or first seen.
+    var keyTick by remember { mutableStateOf(0) }
+    val blog = Blogs.current
+
+    LaunchedEffect(Blogs.currentId, blog?.keyAccount) {
+        publicKey = Blogs.current?.let { runCatching { KeyStore.publicKeyLine(it.keyAccount) }.getOrNull() }
+        probe = Probe.Idle
+    }
+
+    fun makeKey() {
+        val account = Blogs.current?.keyAccount ?: return
+        try {
+            KeyStore.makeKey(account)
+            Engine.hangUp()
+            publicKey = KeyStore.publicKeyLine(account)
+            probe = Probe.Idle
+        } catch (e: Exception) {
+            probe = Probe.Failed(e.said)
+        }
+    }
+
+    // The fields are the open blog's own, written down as they are typed.
+    fun set(change: (Blog) -> Blog) = Blogs.update(change)
+
+    val plain = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii)
+    val host = blog?.host ?: ""
+    val user = blog?.user ?: ""
+    val port = blog?.port ?: 22
+    val paired = blog?.pairedAs
+
+    SheetDialog(onDismissRequest = onBack) {
+        SheetBars()
+        Typed {
+    SheetFrame {
+    PaperScreen(
+        onBack = onBack, name = stringResource(R.string.the_blog_s_settings),
+        actions = { DialogKey(stringResource(R.string.done), onClick = onDone) },
+    ) {
+        // Which blog's: the one the row was.
+        val label = blog?.label ?: ""
+        if (label.isNotEmpty()) Text(label, color = Theme.accent, style = mono(12f), modifier = Modifier.padding(top = 2.dp))
+
+        SectionLabel(stringResource(R.string.server))
+        Plate {
+            row { FieldRow(stringResource(R.string.host), host, { v -> set { it.copy(host = v) } }, mono = true, keyboard = plain.copy(keyboardType = KeyboardType.Uri)) }
+            row { FieldRow(stringResource(R.string.user), user, { v -> set { it.copy(user = v) } }, mono = true, keyboard = plain) }
+            row {
+                FieldRow(
+                    stringResource(R.string.port), port.toString(),
+                    { v -> set { it.copy(port = v.filter(Char::isDigit).toIntOrNull() ?: it.port) } },
+                    mono = true, keyboard = plain.copy(keyboardType = KeyboardType.Number),
+                )
+            }
+            // Where on it the blog is, and what it is entered through --
+            // for a blog set up by hand. One a code let in has both in the
+            // line the server wrote for it: empty fields with an example in
+            // them read as that blog's own, and are not shown.
+            if (paired == null) {
+                row { FieldRow(stringResource(R.string.path), blog?.path ?: "", { v -> set { it.copy(path = v) } }, prompt = "/home/you/blog", mono = true, keyboard = plain) }
+                row { FieldRow(stringResource(R.string.through), blog?.through ?: "", { v -> set { it.copy(through = v) } }, prompt = "sudo docker exec -i blog", mono = true, keyboard = plain) }
+            }
+        }
+        val key = publicKey
+        if (paired != null) {
+            // How it was let in, under which name -- what the server is told
+            // to take this device off -- and the way to be let in again:
+            // the blog moved, or its machine has another address.
+            SectionLabel(stringResource(R.string.connected_by_a_code))
+            Plate {
+                row {
+                    Text(
+                        if (paired.isEmpty()) stringResource(R.string.this_device_was_let_in_to_the_2) else stringResource(R.string.this_device_was_let_in_to_the, paired),
+                        color = Theme.ink, style = ui(15f),
+                    )
+                }
+                // The key the server knows it by: two lines there can
+                // carry the same name, and only this tells them apart.
+                key?.let { runCatching { KeyStore.fingerprintOf(it) }.getOrNull() }?.let { print ->
+                    row {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            EngineLabel(stringResource(R.string.this_device_s_key))
+                            SelectionContainer { Text(print, color = Theme.ink, style = mono(12f, bold = false)) }
+                        }
+                    }
+                }
+                // Who else a code let in, and the way out for this one.
+                row { Command(stringResource(R.string.paired_devices), Symbols.ipadAndIphone, leads = true) { showingDevices = true } }
+                row { Command(stringResource(R.string.pair_again), Symbols.qrcodeViewfinder) { pairing = true } }
+            }
+            Hint(stringResource(R.string.where_the_blog_lies_on_the_server))
+        } else {
+        Hint(stringResource(R.string.the_line_for_the_server_s_ssh))
+
+        SectionLabel(stringResource(R.string.key))
+        if (key != null) {
+            // No line until it can be a true one: a made-up path in it is a
+            // line somebody copies.
+            val line = KeyLine.compose(key, blog?.path ?: "", blog?.through ?: "")
+            Plate {
+                row { SelectionContainer { Text(key, color = Theme.ink, style = mono(12f, bold = false)) } }
+                if (line != null) {
+                    row { SelectionContainer { Text(line, color = Theme.ink, style = mono(12f, bold = false)) } }
+                    row {
+                        if (copied) DoneRow(stringResource(R.string.copied))
+                        else Command(stringResource(R.string.copy_the_authorized_keys_line), Symbols.docOnDoc) {
+                            copyText(context, "authorized_keys", line)
+                            copied = true
+                            scope.launch {
+                                delay(2_000)
+                                copied = false
+                            }
+                        }
+                    }
+                }
+                row { Command(stringResource(R.string.make_a_new_key), Symbols.key, danger = true) { confirmingNewKey = true } }
+            }
+        } else {
+            Plate { row { Command(stringResource(R.string.make_the_app_s_key), Symbols.key) { makeKey() } } }
+        }
+        Hint(stringResource(R.string.the_key_is_made_on_this_device))
+        // A blog set up by hand can be let in by a code as well.
+        Plate(Modifier.gap(10)) {
+            row { Command(stringResource(R.string.connect_this_blog_by_a_code), Symbols.qrcodeViewfinder) { pairing = true } }
+        }
+        }
+
+        SectionLabel(stringResource(R.string.connection))
+        PrimaryButton(
+            stringResource(R.string.test_the_connection),
+            enabled = host.isNotEmpty() && user.isNotEmpty() && key != null, busy = probe == Probe.Running,
+        ) {
+            scope.launch {
+                probe = Probe.Running
+                probe = try {
+                    Probe.Answered(Engine.call<VersionAnswer>("version"))
+                } catch (e: Throwable) {
+                    if (e.isCalledOff) throw e
+                    Probe.Failed(e.said)
+                }
+                keyTick += 1
+            }
+        }
+        when (val now = probe) {
+            is Probe.Answered -> {
+                val answer = now.answer
+                Plate(Modifier.gap(12)) {
+                    row {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("./blog.sh ${answer.engine}", color = Theme.ink, style = mono(13f))
+                            Text(
+                                if (answer.site.claim.isEmpty()) answer.site.name else "${answer.site.name} — ${answer.site.claim.replace("\n", " ")}",
+                                color = Theme.ink, style = ui(15f),
+                            )
+                            Text(answer.site.url, color = Theme.muted, style = mono(12f, bold = false))
+                        }
+                    }
+                }
+            }
+            is Probe.Failed -> ProblemLine(now.reason)
+            else -> {}
+        }
+
+        // As the connection takes them -- the host without the space typed
+        // after it, no port as ssh's own: the server's key is remembered
+        // under these, and has to be looked up and forgotten under these.
+        val (reachedHost, reachedPort) = blog?.reached ?: ("" to 22)
+        val known = remember(reachedHost, reachedPort, keyTick) { TrustOnFirstUse.known(reachedHost, reachedPort) }
+        if (known != null) {
+            Plate(Modifier.gap(12)) {
+                row {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        EngineLabel(stringResource(R.string.server_key))
+                        SelectionContainer { Text(known, color = Theme.ink, style = mono(12f, bold = false)) }
+                    }
+                }
+                row {
+                    // Asked, as a new key of the app's own is: with the
+                    // server's key forgotten the next machine to answer is
+                    // believed, whichever it is.
+                    Command(stringResource(R.string.forget_the_server_s_key), Symbols.xmarkCircle, danger = true) { confirmingForget = true }
+                }
+            }
+        }
+
+        // The blog leaves the app; nothing on the server is touched.
+        if (blog != null) {
+            Plate(Modifier.gap(28)) {
+                row { Command(stringResource(R.string.remove_this_blog), Symbols.minusCircle, danger = true) { confirmingRemoval = true } }
+            }
+        }
+    }
+    }
+        }
+    }
+
+    if (showingDevices) DevicesSheet(onBack = { showingDevices = false })
+    if (pairing && blog != null) {
+        AddBlogSheet(into = blog, onBack = { pairing = false }, onDone = {
+            pairing = false
+            probe = Probe.Idle
+            keyTick += 1
+        })
+    }
+    if (confirmingForget && blog != null) {
+        Asks(
+            stringResource(R.string.forget_the_key_this_server_was_known),
+            choices = listOf(Choice(stringResource(R.string.forget_the_key), danger = true) {
+                val (host, port) = blog.reached
+                TrustOnFirstUse.forget(host, port)
+                // The kept connection was opened to the key just forgotten.
+                Engine.hangUp()
+                keyTick += 1
+            }),
+            onDismiss = { confirmingForget = false },
+        )
+    }
+    if (confirmingNewKey) {
+        Asks(
+            stringResource(R.string.make_a_new_key_the_server_will),
+            choices = listOf(Choice(stringResource(R.string.make_a_new_key), danger = true) { makeKey() }),
+            onDismiss = { confirmingNewKey = false },
+        )
+    }
+    if (confirmingRemoval && blog != null) {
+        Asks(
+            leavingWords(blog),
+            choices = listOf(Choice(stringResource(R.string.remove), danger = true) {
+                Blogs.remove(blog.id)
+                onBack()
+            }),
+            onDismiss = { confirmingRemoval = false },
+        )
+    }
+}

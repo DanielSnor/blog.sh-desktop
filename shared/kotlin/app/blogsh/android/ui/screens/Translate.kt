@@ -1,0 +1,298 @@
+package app.blogsh.android.ui.screens
+
+import app.blogsh.android.ui.stringResource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import app.blogsh.android.R
+import app.blogsh.android.model.ActionAnswer
+import app.blogsh.android.model.BlogShelf
+import app.blogsh.android.model.Blogs
+import app.blogsh.android.model.CodeQuotes
+import app.blogsh.android.model.DeliveryFile
+import app.blogsh.android.model.Desk
+import app.blogsh.android.model.Engine
+import app.blogsh.android.model.Preview
+import app.blogsh.android.model.TranslationAnswer
+import app.blogsh.android.model.TranslationEntry
+import app.blogsh.android.model.Unsaved
+import app.blogsh.android.model.isCalledOff
+import app.blogsh.android.model.refusedAs
+import app.blogsh.android.model.plain
+import app.blogsh.android.model.said
+import app.blogsh.android.ui.Asks
+import app.blogsh.android.ui.BroughtBack
+import app.blogsh.android.ui.Busy
+import app.blogsh.android.ui.Choice
+import app.blogsh.android.ui.Command
+import app.blogsh.android.ui.EditorState
+import app.blogsh.android.ui.Hint
+import app.blogsh.android.ui.LocalNav
+import app.blogsh.android.ui.PaperEditor
+import app.blogsh.android.ui.PaperScreen
+import app.blogsh.android.ui.Plate
+import app.blogsh.android.ui.PrimaryButton
+import app.blogsh.android.ui.ProblemLine
+import app.blogsh.android.ui.SectionLabel
+import app.blogsh.android.ui.Stranded
+import app.blogsh.android.ui.Symbols
+import app.blogsh.android.ui.Theme
+import app.blogsh.android.ui.broughtBackWords
+import app.blogsh.android.ui.gap
+import app.blogsh.android.ui.mono
+import app.blogsh.android.ui.ui
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
+import java.util.Locale
+
+/**
+ * [l]: the post's words in another language the site publishes. What
+ * `translate` opens in the editor, opened here: the translation's header
+ * (its title, its address) and its text, with the original beside it to
+ * translate from. The save goes back as a file saying which post, which
+ * version and which language; an empty title and body take the language
+ * off the post, as the editor's hint says.
+ *
+ * What is written and not saved is kept on the device (`Unsaved`), for
+ * this post and this language, and is back the next time it is opened.
+ */
+@Composable
+fun TranslateScreen(slug: String, lang: String) {
+    val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
+    var entry by remember { mutableStateOf<TranslationEntry?>(null) }
+    val state = remember { EditorState() }
+    var showingOriginal by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    // The save was turned away because the post has changed on the blog
+    // since its text was opened here.
+    var changedOnBlog by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf<ActionAnswer?>(null) }
+    // The last save took the language off rather than wrote it.
+    var tookOff by remember { mutableStateOf(false) }
+    // Counted when a save has answered: the page goes to the answer.
+    var answered by remember { mutableStateOf(0) }
+    var confirmingRemoval by remember { mutableStateOf(false) }
+    var previewing by remember { mutableStateOf(false) }
+    // The words brought back when the screen opened, for the line that says so.
+    var broughtBack by remember { mutableStateOf<Unsaved?>(null) }
+    // The blog the screen was opened for: what is kept is kept under it.
+    val blog = remember { Blogs.currentId }
+    val what = remember(lang) { Unsaved.What.Language(lang) }
+
+    val languageName = remember(lang) { Locale.forLanguageTag(lang).getDisplayLanguage(Locale.getDefault()).ifEmpty { lang } }
+    val text = state.text
+
+    suspend fun load() {
+        try {
+            val answer = Engine.call<TranslationAnswer>("translate", slug, "--lang", lang)
+            entry = answer.post
+            // The blog's words, or the ones written here and never saved.
+            // What was written here is brought back only where it can be saved.
+            val kept = if (answer.post.editable) blog?.let { Unsaved.kept(it, slug, what, BlogShelf.notes) } else null
+            if (kept != null && kept.text != answer.post.text) {
+                broughtBack = kept
+                state.set(kept.text)
+            } else {
+                broughtBack = null
+                state.set(answer.post.text)
+            }
+            problem = null
+        } catch (e: Throwable) {
+            if (e.isCalledOff) throw e
+            problem = e.said
+        }
+    }
+
+    // At every letter; words that are the blog's again are nothing to keep.
+    fun keep(written: String) {
+        val post = entry ?: return
+        if (blog == null) return
+        if (written == post.text) Unsaved.forget(blog, slug, what, BlogShelf.notes)
+        else Unsaved.now(written, post.title, post.base, broughtBack, System.currentTimeMillis()).keep(blog, slug, what, BlogShelf.notes)
+        Desk.changed()
+    }
+
+    fun takeTheBlogs() {
+        broughtBack = null
+        state.set(entry?.text ?: "")
+        blog?.let { Unsaved.forget(it, slug, what, BlogShelf.notes) }
+    }
+
+    // The header gets the three lines of the delivery: which post, which
+    // version, which language.
+    fun fileText(body: String): String {
+        val post = entry ?: return body
+        val lines = "edits: ${post.slug}\nbase: ${post.base}\nlang: $lang\n"
+        if (body.startsWith("---\n")) return "---\n" + lines + body.drop(4)
+        return "---\n" + lines + "---\n\n" + body
+    }
+
+    suspend fun save(body: String, takingOff: Boolean = false) {
+        saving = true
+        // Whose post it is and what the editor held, said before anything is waited for.
+        val going = state.text
+        try {
+            problem = null
+            changedOnBlog = false
+            // What goes has code's quotes in its code.
+            val file = DeliveryFile("$slug-$lang.md", fileText(CodeQuotes.settled(body, entry?.text)).toByteArray(Charsets.UTF_8))
+            saved = Engine.delivered(listOf(file), to = blog)
+            // What was done, by what was sent: emptied words take the
+            // language off whichever key sent them.
+            tookOff = takingOff || Preview.takesOff(body)
+            // Saved, or taken off: what the editor held is not left to bring back.
+            blog?.let { Unsaved.forget(it, slug, what, going, BlogShelf.notes) }
+            broughtBack = null
+            Desk.changed()
+            load()
+            answered += 1
+        } catch (e: Throwable) {
+            if (e.isCalledOff) throw e
+            problem = e.said
+            changedOnBlog = e.refusedAs == "changed"
+            answered += 1
+        } finally {
+            saving = false
+        }
+    }
+
+    // The text as the blog has it now, in place of what is written here.
+    suspend fun takeAfresh() {
+        blog?.let { Unsaved.forget(it, slug, what, BlogShelf.notes) }
+        Desk.changed()
+        changedOnBlog = false
+        load()
+    }
+
+    LaunchedEffect(Unit) { load() }
+    LaunchedEffect(Unit) { snapshotFlow { state.text }.drop(1).collect { keep(it) } }
+
+    fun leave() = nav.pop()
+
+    Box(Modifier.fillMaxSize()) {
+        PaperScreen(title = entry?.title, answered = answered) {
+            val post = entry
+            if (post != null) {
+                broughtBack?.let { back ->
+                    BroughtBack(broughtBackWords(back, post.base, null), stringResource(R.string.take_the_text_as_the_blog_has)) { takeTheBlogs() }
+                }
+                SectionLabel(stringResource(R.string.the_original))
+                Plate {
+                    row {
+                        Command(
+                            stringResource(if (showingOriginal) R.string.hide_the_original else R.string.show_the_original),
+                            if (showingOriginal) Symbols.chevronUp else Symbols.chevronDown,
+                        ) { showingOriginal = !showingOriginal }
+                    }
+                    if (showingOriginal) {
+                        row { SelectionContainer { Text(post.original, color = Theme.ink, style = mono(14f, bold = false)) } }
+                    }
+                }
+                Hint(stringResource(R.string.only_the_words_are_translated_the_date))
+
+                SectionLabel(stringResource(R.string.s_in, languageName))
+                // What the text cannot say is not written over from here:
+                // the translation is read, and changed at the desk.
+                if (!post.editable) {
+                    Hint(
+                        post.problem?.let { stringResource(R.string.this_post_cannot_be_edited_here_at, it) }
+                            ?: stringResource(R.string.this_post_cannot_be_edited_here),
+                        Modifier.padding(bottom = 10.dp),
+                    )
+                }
+                Plate {
+                    // Left alone while a save is on its way.
+                    row { PaperEditor(state, minHeight = 280.dp, enabled = post.editable && !saving, original = post.text) }
+                }
+                Plate(Modifier.gap(10)) {
+                    row { Command(stringResource(R.string.preview), Symbols.eye) { previewing = true } }
+                }
+
+                PrimaryButton(
+                    if (saving) stringResource(R.string.saving) else stringResource(R.string.save_the_text, languageName),
+                    modifier = Modifier.gap(22),
+                    enabled = !(saving || !post.editable || text == post.text),
+                    busy = saving,
+                ) { Desk.outliving.launch { save(state.text) } }
+                problem?.let { ProblemLine(it) }
+                if (problem != null && changedOnBlog) {
+                    Plate(Modifier.gap(10)) {
+                        row {
+                            Command(stringResource(R.string.load_the_post_as_the_blog_has), Symbols.arrowClockwise, danger = true, enabled = !saving) {
+                                scope.launch { takeAfresh() }
+                            }
+                        }
+                    }
+                    Hint(stringResource(R.string.what_is_written_here_is_replaced_by))
+                }
+                if (post.written) {
+                    Plate(Modifier.gap(14)) {
+                        row {
+                            Command(stringResource(R.string.take_this_language_off_the_post), Symbols.minusCircle, danger = true, enabled = !saving) {
+                                confirmingRemoval = true
+                            }
+                        }
+                    }
+                }
+
+                saved?.let { saved ->
+                    SectionLabel(stringResource(if (tookOff) R.string.taken_off else R.string.saved))
+                    Plate {
+                        // What was done, not only to what: written, or taken off.
+                        row {
+                            Text(
+                                stringResource(if (tookOff) R.string.the_text_is_taken_off else R.string.the_text, saved.slug, languageName),
+                                color = Theme.ink, style = ui(15f),
+                            )
+                        }
+                        saved.warnings?.plain?.forEach { warning ->
+                            row { Text(warning, color = Theme.muted, style = ui(13f)) }
+                        }
+                        row { Command(stringResource(R.string.back_to_the_post), Symbols.arrowLeft) { leave() } }
+                    }
+                }
+            } else {
+                problem?.let { ProblemLine(it) }
+                // What is kept for this language while the post itself did not open.
+                val stranded = remember(Desk.changes) { blog?.let { Unsaved.kept(it, slug, what, BlogShelf.notes) } }
+                if (problem != null && stranded != null) {
+                    Stranded(stranded) {
+                        blog?.let { Unsaved.forget(it, slug, what, BlogShelf.notes) }
+                        Desk.changed()
+                    }
+                }
+            }
+        }
+        if (entry == null && problem == null) Busy(modifier = Modifier.align(Alignment.Center))
+    }
+
+    if (previewing) {
+        // The translation's own title, or the post's while it has none;
+        // the pictures are the post's, from beside its page on the blog.
+        val parts = remember { Preview.parts(state.text) }
+        val shown = remember { Preview.shown(entry?.media ?: emptyList(), entry?.preview ?: "/") }
+        PreviewSheet(parts.first.ifEmpty { entry?.title ?: "" }, parts.second, shown, lang = lang) { previewing = false }
+    }
+    if (confirmingRemoval) {
+        Asks(
+            stringResource(R.string.take_the_text_off_the_post_then, languageName, slug),
+            choices = listOf(Choice(stringResource(R.string.take_it_off), danger = true) { Desk.outliving.launch { save("---\ntitle:\n---\n\n", takingOff = true) } }),
+            onDismiss = { confirmingRemoval = false },
+        )
+    }
+}

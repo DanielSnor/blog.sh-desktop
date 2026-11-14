@@ -11,14 +11,11 @@ dependencyResolutionManagement {
         mavenCentral()
     }
     versionCatalogs {
-        // The versions the Android app is built with, Kotlin first among them:
-        // the model is one for both apps and is built with them.
-        create("libs") { from(files("../blog.sh-android/gradle/libs.versions.toml")) }
+        // The versions the Android app is built with, Kotlin first among them --
+        // copied with the model and the screens (shared/), which are built with them.
+        create("libs") { from(files("shared/versions.toml")) }
         create("desk") { from(files("gradle/desktop.versions.toml")) }
     }
 }
 
 rootProject.name = "blogsh-desktop"
-
-// The model, from the Android app's working copy beside this one.
-includeBuild("../blog.sh-android/core")

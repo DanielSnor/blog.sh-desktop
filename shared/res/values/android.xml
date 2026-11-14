@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Words only the Android app needs: what its own keys are called. Everything else is in strings.xml, from the iOS catalog. -->
+<resources>
+    <string name="android_back">Back</string>
+    <string name="android_close">Close</string>
+    <string name="android_more">More</string>
+    <string name="android_queue_hold">A row opens its post. Held, it shows its keys — and a row held can be carried to another place in the queue.</string>
+    <string name="android_hue">Hue</string>
+    <string name="android_saturation">Saturation</string>
+    <string name="android_brightness">Brightness</string>
+    <string name="android_colour_number">The colour as a number</string>
+    <string name="android_paste">Paste</string>
+    <string name="android_picture_needs_network">The picture could not be read: it is most likely kept only in the cloud, and without a network it cannot be fetched. One that is on this device whole — taken just now, say — can be added.</string>
+    <string name="android_taken_off_on_the_server">Taken off on the server with:</string>
+    <string name="android_check_for_a_newer_version">Check for a newer version</string>
+    <string name="android_newer_version">Version %1$s is out — this is %2$s.</string>
+    <string name="android_open_the_release">Open the release</string>
+    <string name="android_newest_version">This is the newest version.</string>
+    <string name="android_no_release_yet">No version has been released yet.</string>
+    <string name="android_could_not_ask_github">GitHub could not be asked. Is this device on a network?</string>
+</resources>
