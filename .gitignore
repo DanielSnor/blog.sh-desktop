@@ -1,0 +1,11 @@
+# Gradle and the build
+.gradle/
+build/
+.kotlin/
+# This machine's own: where the build goes
+local.properties
+# IntelliJ IDEA
+.idea/
+*.iml
+# macOS
+.DS_Store
