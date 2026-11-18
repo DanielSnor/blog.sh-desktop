@@ -46,6 +46,8 @@ object Machine {
         }.apply { mkdirs() }
     }
 
+    const val RELEASES = "https://api.github.com/repos/DanielSnor/blog.sh-desktop/releases/latest"
+
     /** Said once, as the app starts, before anything asks the model. */
     fun install() {
         val notes = FileNotes(File(home, "settings.properties"))
@@ -60,6 +62,8 @@ object Machine {
                 .getOrDefault(BuildStamp(null, null))
                 .copy(version = Machine::class.java.`package`?.implementationVersion)
         }
+        // A newer version is one of this app's own releases, not the Android app's.
+        Device.releases = RELEASES
         Device.log = { what, error -> System.err.println("blogsh: $what: $error") }
         Spoken.source = { word, args -> Words.say(word, args) }
     }

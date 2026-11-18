@@ -20,7 +20,8 @@ require "open3"
 
 here = File.expand_path("..", __dir__)
 android = File.expand_path(ARGV[0] || File.join(here, "../blog.sh-android"))
-abort "No Android app at #{android}" unless File.directory?(File.join(android, ".git"))
+# A working copy, or a worktree of one (where .git is a file).
+abort "No Android app at #{android}" unless File.exist?(File.join(android, ".git"))
 
 def git(dir, *args)
   out, status = Open3.capture2("git", "-C", dir, *args)

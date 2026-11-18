@@ -98,6 +98,13 @@ class MachineTest {
         assertArrayEquals(seed, vault.read("blog-a"))
     }
 
+    /** A newer version is asked of this app's own releases: the Android app's would send a desktop to an APK. */
+    @Test
+    fun aNewerVersionIsAskedOfThisAppsOwnReleases() {
+        Machine.install()
+        assertEquals("https://api.github.com/repos/DanielSnor/blog.sh-desktop/releases/latest", app.blogsh.android.model.Device.releases)
+    }
+
     /** A card's picture is made small, its sides kept in proportion; what is no picture gives none. */
     @Test
     fun aPictureIsMadeSmallForItsCard() {
