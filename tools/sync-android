@@ -67,15 +67,28 @@ unless changed.empty?
   abort "The Android app has changes not committed in what is taken:\n#{changed.join}Commit them there first."
 end
 
+# Only what changed is written, and only what the Android app no longer
+# has is removed: a folder something syncs (iCloud) answers a whole tree
+# deleted and written again with copies of its own ("Preview 2.kt"),
+# which the build then compiles twice.
 shared = File.join(here, "shared")
-%w[kotlin resources res test-resources versions.toml].each { |name| FileUtils.rm_rf(File.join(shared, name)) }
-taken.each do |from, to|
-  target = File.join(shared, to)
+wanted = taken.to_h { |from, to| [File.join(shared, to), File.join(android, from)] }
+written = 0
+wanted.each do |target, source|
+  next if File.file?(target) && FileUtils.compare_file(target, source)
   FileUtils.mkdir_p(File.dirname(target))
-  FileUtils.cp(File.join(android, from), target)
+  FileUtils.cp(source, target)
+  written += 1
 end
+gone = %w[kotlin resources res test-resources].flat_map { |name| Dir.glob(File.join(shared, name, "**", "*")) }
+  .select { |path| File.file?(path) && !wanted.key?(path) }
+gone.each { |path| File.delete(path) }
+Dir.glob(File.join(shared, "**", "*")).select { |path| File.directory?(path) }.sort_by { |path| -path.length }
+  .each { |path| Dir.rmdir(path) if Dir.empty?(path) }
 
 commit = git(android, "rev-parse", "HEAD").strip
 date = git(android, "log", "-1", "--format=%cI").strip
 File.write(File.join(shared, "SOURCE"), "blog.sh-android #{commit}\n#{date}\n")
-puts "#{taken.size} files from blog.sh-android #{commit[0, 7]} (#{date})"
+puts "#{taken.size} files from blog.sh-android #{commit[0, 7]} (#{date}): #{written} written, #{gone.size} removed"
+stray = Dir.glob(File.join(shared, "**", "* [0-9].*"))
+warn "Copies a syncing folder made, not the Android app's -- remove them:\n#{stray.join("\n")}" unless stray.empty?
