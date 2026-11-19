@@ -20,13 +20,16 @@ and draws the answers. The archive, the build and the deploy stay where
 they are.
 
 Requires [blog.sh](https://github.com/DanielSnor/blog.sh) 1.10 or later
-on the server.
+on the server. Asking the server's translator for a translation needs
+1.12; with an older engine the app does not offer it.
 
-**Where it stands:** 0.1, the first version to be tried by somebody
-other than the person who wrote it. Everything on the screens works as
-it does on an Android tablet, where the Android app has been in use for
-weeks; what is new is the desktop around them -- the window, the keys,
-the files, the installers. That is what is to be tried.
+**Where it stands:** 0.10. The number is the Android and the iOS app's:
+the three apps do the same, and when one catches up with the others it
+takes their number -- so after 0.1.0 came 0.10.0. Everything on the
+screens works as it does on an Android tablet, where the Android app has
+been in use for weeks; what is new is the desktop around them -- the
+window, the keys, the files, the installers. That is what is to be
+tried.
 
 ## Installing it
 
@@ -38,11 +41,11 @@ elementary, …). Take the one for your machine -- `dpkg
 
 | `dpkg --print-architecture` | package |
 |---|---|
-| `amd64` | `blogsh_0.1.0_amd64.deb` |
-| `arm64` | `blogsh_0.1.0_arm64.deb` |
+| `amd64` | `blogsh_0.10.0_amd64.deb` |
+| `arm64` | `blogsh_0.10.0_arm64.deb` |
 
 ```
-sudo apt install ./blogsh_0.1.0_amd64.deb
+sudo apt install ./blogsh_0.10.0_amd64.deb
 ```
 
 The `./` matters: without it apt looks for a package of that name in its
@@ -65,8 +68,8 @@ app itself is in place; `sudo mkdir -p /etc/xdg/menus && sudo dpkg
 
 ### Windows
 
-A zip, for now -- no installer yet: `blogsh-0.1.0-windows-x64.zip` for
-an ordinary PC, `blogsh-0.1.0-windows-arm64.zip` for a Windows on ARM
+A zip, for now -- no installer yet: `blogsh-0.10.0-windows-x64.zip` for
+an ordinary PC, `blogsh-0.10.0-windows-arm64.zip` for a Windows on ARM
 (Surface Pro X and later, Snapdragon laptops; *Settings → System →
 About* says *ARM-based processor*).
 
@@ -165,6 +168,7 @@ expect, is worth a line -- see the end of this file.
 | a video in the viewer is played in the app | it opens in the system's player |
 | the share sheet | the post's address goes to the clipboard, and the app says so |
 | the system's way back | Esc |
+| the original beside a translation when the tablet lies on its side | beside it in a window wider than it is tall; in a taller one it is above, as on a phone |
 
 The colours, the type, the marks and every word are the Android app's.
 
