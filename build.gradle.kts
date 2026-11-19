@@ -11,8 +11,8 @@ plugins {
 }
 
 // The same number for the same state as the iOS and the Android app: this one
-// has what the Android app 0.8.1 has, in a desktop's own ways.
-version = "0.8.1"
+// has what the Android app 0.10.0 has, in a desktop's own ways.
+version = "0.10.0"
 
 // A working copy may live in a folder something syncs (iCloud, Dropbox), and
 // a build writes thousands of files that have no business there. A line
