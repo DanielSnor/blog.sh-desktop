@@ -40,6 +40,7 @@ import app.blogsh.android.ui.screens.QueueScreen
 import app.blogsh.android.ui.screens.SettingsSheet
 import app.blogsh.android.ui.screens.SiteScreen
 import app.blogsh.android.ui.screens.TextEditScreen
+import app.blogsh.android.ui.screens.TranslateScreen
 import app.blogsh.android.ui.screens.TrashScreen
 import org.jetbrains.skia.EncodedImageFormat
 import org.junit.AfterClass
@@ -109,13 +110,19 @@ class ScreensTest {
         }
     }
 
-    /** The window with `screen` open beside the menu and `over` laid on top, drawn in every look. */
-    private fun shot(name: String, tag: MenuEntry? = null, over: (@Composable () -> Unit)? = null, screen: (@Composable () -> Unit)? = null) {
+    /**
+     * The window with `screen` open beside the menu and `over` laid on top,
+     * drawn in every look: wider than it is tall unless told otherwise.
+     */
+    private fun shot(
+        name: String, tag: MenuEntry? = null, width: Int = 1280, height: Int = 800,
+        over: (@Composable () -> Unit)? = null, screen: (@Composable () -> Unit)? = null,
+    ) {
         val out = File(System.getProperty("blogsh.screens") ?: "build/screens")
         for (look in looks) {
             Locale.setDefault(Locale.forLanguageTag(look.lang))
             Reading.shared.hold(if (look.night) DayNight.Night else DayNight.System)
-            ImageComposeScene(1280, 800, Density(1f)) {
+            ImageComposeScene(width, height, Density(1f)) {
                 BlogshTheme {
                     val nav = remember { Nav() }
                     val home = remember { HomeState() }
@@ -172,6 +179,24 @@ class ScreensTest {
     @Test fun installationCheck() = shot("doctor", MenuEntry.Rebuild) { DiagnosisScreen(Diagnosis.Installation) }
 
     @Test fun trash() = shot("trash", MenuEntry.Restore) { TrashScreen() }
+
+    /**
+     * A translation and its original: side by side in a window wider than
+     * it is tall, one above the other in a window taller than it is wide --
+     * an upright window is a phone made larger.
+     */
+    @Test fun translation() {
+        val held = """{"ok":true,"post":{"slug":"dobehnuto","lang":"en","title":"Finished","written":true,""" +
+            """"text":"---\ntitle: Finished\n---\n\nTen kilometres in the rain.","original":"---\ntitle: Doběhnuto\n---\n\nDeset kilometrů v dešti.",""" +
+            """"media":[],"preview":"/draft/5dddc3f0aa0a4195/dobehnuto/","base":"abc","editable":false,"problem":"a second link card"}}"""
+        Engine.stand = { args -> if (args.firstOrNull() == "translate") held.toByteArray() else answer(args) }
+        try {
+            shot("translate", MenuEntry.Post) { TranslateScreen("dobehnuto", "en") }
+            shot("translate-upright", MenuEntry.Post, width = 800, height = 1200) { TranslateScreen("dobehnuto", "en") }
+        } finally {
+            Engine.stand = ::answer
+        }
+    }
 
     @Test fun settings() = shot("settings", over = { SettingsSheet(onDismiss = {}) })
 
